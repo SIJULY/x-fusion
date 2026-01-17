@@ -1,0 +1,17 @@
+[
+    {
+        "name": "Oracle|🇺🇸圣何塞1-ARM-1",
+        "group": "🇺🇸 美国",
+        "url": "167.234.213.184:54321",
+        "user": "sijuly",
+        "pass": "050148Sq$",
+        "prefix": "",
+        "ssh_port": "22",
+        "ssh_user": "root",
+        "ssh_auth_type": "全局密钥",
+        "ssh_password": "",
+        "ssh_key": "",
+        "probe_installed": true,
+        "_detected_region": "美国"
+    }
+]
