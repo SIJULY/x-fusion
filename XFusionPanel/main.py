@@ -39,17 +39,19 @@ init_data()
 register_api_routes(app)
 
 # ================= ✨✨✨ [核心修复] 静态文件绝对路径 ✨✨✨ =================
-# 获取 main.py 所在的绝对目录
+# 1. 获取 main.py 文件所在的绝对目录
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 2. 拼接出 static 文件夹的绝对路径
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
-# 强制检查目录是否存在
+# 3. 强制检查目录是否存在
 if not os.path.exists(STATIC_DIR):
-    logger.error(f"❌ 静态目录不存在: {STATIC_DIR}")
+    logger.error(f"❌ 静态目录未找到: {STATIC_DIR}")
+    logger.error("请确保 static 文件夹在 main.py 同级目录下，并且里面有文件！")
 else:
-    logger.info(f"📂 静态资源目录: {STATIC_DIR}")
+    logger.info(f"📂 静态资源目录已挂载: {STATIC_DIR}")
+    # 4. 使用绝对路径注册
     app.add_static_files('/static', STATIC_DIR)
-
 
 # ================= 生命周期管理 =================
 async def startup():
@@ -57,16 +59,13 @@ async def startup():
     logger.info("🚀 进程池已启动")
     await start_scheduler()
 
-
 async def shutdown():
     if state.PROCESS_POOL:
         state.PROCESS_POOL.shutdown(wait=False)
     logger.info("👋 系统已关闭")
 
-
 app.on_startup(startup)
 app.on_shutdown(shutdown)
-
 
 # ================= 辅助函数 =================
 def check_auth():
@@ -76,17 +75,14 @@ def check_auth():
     user_ver = app.storage.user.get('session_version', '')
     return current_ver == user_ver
 
-
 # ================= 页面路由定义 =================
 @ui.page('/login')
 def route_login():
     login_page()
 
-
 @ui.page('/status')
 async def route_status(request: Request):
     await status_page_router(request)
-
 
 @ui.page('/')
 async def route_index(request: Request):
@@ -96,24 +92,24 @@ async def route_index(request: Request):
     ui.add_head_html(COMMON_HEAD_HTML)
     # 注入JS变量，防止地图加载时变量未定义
     ui.add_body_html('<script>window.DASHBOARD_DATA = []; window.cachedWorldJson = null;</script>')
-
+    
     client_ip = request.headers.get("X-Forwarded-For", request.client.host).split(',')[0].strip()
-
+    
     init_layout(client_ip)
-    ui.timer(0, lambda: route_to('DASHBOARD'), once=True)
-
+    # 稍微延迟跳转，确保前端资源加载完毕
+    ui.timer(0.1, lambda: route_to('DASHBOARD'), once=True)
 
 # ================= 启动入口 =================
 if __name__ in {"__main__", "__mp_main__"}:
     print(f"🚀 X-Fusion Panel 正在启动...")
-    print(f"📂 数据目录: {DATA_DIR}")
-
+    print(f"📂 运行目录: {os.getcwd()}")
+    
     ui.run(
         title='X-Fusion Panel',
         host='0.0.0.0',
         port=8080,
         language='zh-CN',
-        storage_secret='sijuly_secret_key_change_this',
+        storage_secret='sijuly_secret_key_change_this', # 建议修改
         reload=False,
         favicon='🚀',
         reconnect_timeout=10.0,
