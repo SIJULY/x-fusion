@@ -1,17 +1,21 @@
 #!/bin/bash
 
 # ==============================================================================
-# X-Fusion Panel 一键安装/管理脚本 (Git 仓库版)
-# GitHub: https://github.com/SIJULY/x-fusion-panel
+# X-Fusion 一键安装/管理脚本 (适配 x-fusion 新仓库)
+# GitHub: https://github.com/SIJULY/x-fusion
 # ==============================================================================
 
 # --- 全局变量 ---
-PROJECT_NAME="x-fusion-panel"
+# ✨ 1. 修改项目名称，安装目录变更为 /root/x-fusion
+PROJECT_NAME="x-fusion"
 INSTALL_DIR="/root/${PROJECT_NAME}"
-OLD_INSTALL_DIR="/root/xui_manager" 
 
-# 你的仓库地址
-REPO_URL="https://github.com/SIJULY/x-fusion-panel.git"
+# 旧版目录 (用于数据迁移)
+OLD_INSTALL_DIR_V1="/root/xui_manager"
+OLD_INSTALL_DIR_V2="/root/x-fusion-panel"
+
+# ✨ 2. 修改仓库地址为新地址
+REPO_URL="https://github.com/SIJULY/x-fusion.git"
 
 # Caddy 配置标记
 CADDY_MARK_START="# X-Fusion Panel Config Start"
@@ -64,7 +68,6 @@ wait_for_apt_lock() {
 }
 
 check_dependencies() {
-    # 检查并安装 Docker
     if ! command -v docker &> /dev/null; then
         print_info "未检测到 Docker，正在安装..."
         wait_for_apt_lock
@@ -72,7 +75,6 @@ check_dependencies() {
         systemctl enable docker
         systemctl start docker
     fi
-    # 检查并安装 Git (这是新版必须的)
     if ! command -v git &> /dev/null; then
         print_info "未检测到 Git，正在安装..."
         wait_for_apt_lock
@@ -80,28 +82,36 @@ check_dependencies() {
             apt-get update && apt-get install -y git
         elif [ -f /etc/redhat-release ]; then
             yum install -y git
+        elif [ -f /etc/alpine-release ]; then
+            apk add git
         fi
     fi
 }
 
-# --- 核心功能函数 ---
-
+# --- ✨ 核心：数据迁移逻辑 (支持从 x-fusion-panel 迁移) ---
 migrate_old_data() {
-    if [ -d "$OLD_INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}=================================================${PLAIN}"
-        print_info "检测到旧版安装目录 ($OLD_INSTALL_DIR)"
-        print_info "正在自动迁移数据到新目录 ($INSTALL_DIR)..."
-        
-        cd "$OLD_INSTALL_DIR"
-        if docker compose ps | grep -q "xui_manager"; then
-            print_info "停止旧版容器..."
-            docker compose down
-        fi
-        
+    # 迁移 V1 (xui_manager)
+    if [ -d "$OLD_INSTALL_DIR_V1" ] && [ ! -d "$INSTALL_DIR" ]; then
+        print_info "检测到 V1 旧版目录 ($OLD_INSTALL_DIR_V1)，正在迁移..."
+        cd "$OLD_INSTALL_DIR_V1"
+        docker compose down >/dev/null 2>&1
         cd /root
-        mv "$OLD_INSTALL_DIR" "$INSTALL_DIR"
-        print_success "目录重命名完成。"
-        echo -e "${YELLOW}=================================================${PLAIN}"
+        mv "$OLD_INSTALL_DIR_V1" "$INSTALL_DIR"
+        print_success "V1 数据迁移完成。"
+    fi
+
+    # 迁移 V2 (x-fusion-panel) -> 新版 (x-fusion)
+    if [ -d "$OLD_INSTALL_DIR_V2" ] && [ ! -d "$INSTALL_DIR" ]; then
+        print_info "检测到 V2 旧版目录 ($OLD_INSTALL_DIR_V2)，正在迁移至新目录 ($INSTALL_DIR)..."
+        cd "$OLD_INSTALL_DIR_V2"
+        # 停止旧容器名
+        if docker ps -a | grep -q "x-fusion-panel"; then
+            print_info "停止旧容器..."
+            docker compose down >/dev/null 2>&1
+        fi
+        cd /root
+        mv "$OLD_INSTALL_DIR_V2" "$INSTALL_DIR"
+        print_success "目录重命名完成：x-fusion-panel -> x-fusion"
     fi
 }
 
@@ -113,13 +123,11 @@ deploy_code() {
     if [ -d "${INSTALL_DIR}/.git" ]; then
         print_info "检测到现有仓库，正在执行 Git Pull 更新..."
         cd "${INSTALL_DIR}"
-        # 强制重置本地修改，确保与远程同步
         git fetch --all
         git reset --hard origin/main
         git pull
     else
         print_info "正在克隆代码仓库..."
-        # 如果目录存在但不是git库(比如旧版残留)，先备份数据清理目录
         if [ -d "${INSTALL_DIR}" ]; then
             print_warning "目录存在但非Git仓库，正在备份数据并重新克隆..."
             mkdir -p /tmp/x_fusion_backup
@@ -130,7 +138,6 @@ deploy_code() {
         
         git clone "${REPO_URL}" "${INSTALL_DIR}"
         
-        # 恢复备份
         if [ -d "/tmp/x_fusion_backup/data" ]; then
             mkdir -p "${INSTALL_DIR}/data"
             cp -r /tmp/x_fusion_backup/data/* "${INSTALL_DIR}/data/"
@@ -142,18 +149,30 @@ deploy_code() {
     fi
 
     cd "${INSTALL_DIR}"
-    
-    # 确保 data 目录存在
     mkdir -p data
+    mkdir -p static
     
-    # 初始化空文件 (防止挂载报错)
+    # ✨ 强制补全静态资源 (防止 Git 拉取不全)
+    print_info "正在检查并补全静态资源..."
+    if [ ! -s "static/world.json" ]; then
+        print_info "正在下载地图数据..."
+        curl -sS -o static/world.json "https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json"
+    fi
+    if [ ! -s "static/xterm.js" ]; then
+        print_info "正在下载终端依赖..."
+        curl -sS -o static/xterm.js "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
+        curl -sS -o static/xterm.css "https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
+        curl -sS -o static/xterm-addon-fit.js "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"
+    fi
+
+    # 初始化空文件
     if [ ! -f "data/servers.json" ]; then echo "[]" > data/servers.json; fi
     if [ ! -f "data/subscriptions.json" ]; then echo "[]" > data/subscriptions.json; fi
     if [ ! -f "data/admin_config.json" ]; then echo "{}" > data/admin_config.json; fi
     if [ ! -f "Caddyfile" ]; then touch Caddyfile; fi
 }
 
-# --- 动态生成 Docker Compose ---
+# --- 动态生成 Docker Compose (容器名更新为 x-fusion) ---
 generate_compose() {
     local BIND_IP=$1
     local PORT=$2
@@ -165,18 +184,15 @@ generate_compose() {
     cat > ${INSTALL_DIR}/docker-compose.yml << EOF
 version: '3.8'
 services:
-  x-fusion-panel:
+  x-fusion:
     build: .
-    container_name: x-fusion-panel
+    container_name: x-fusion
     restart: always
     ports:
       - "${BIND_IP}:${PORT}:8080"
     volumes:
-      # 挂载数据目录 (持久化)
       - ./data:/app/data
-      # 挂载静态资源 (以便手动修改后立即生效)
       - ./static:/app/static
-      # 挂载 Timezone
       - /etc/localtime:/etc/localtime:ro
     environment:
       - TZ=Asia/Shanghai
@@ -208,7 +224,7 @@ EOF
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy_data:/data
     depends_on:
-      - x-fusion-panel
+      - x-fusion
       - subconverter
 EOF
     fi
@@ -231,7 +247,7 @@ ${DOMAIN} {
         reverse_proxy subconverter:25500 
     }
     handle {
-        reverse_proxy x-fusion-panel:8080
+        reverse_proxy x-fusion:8080
     }
 }
 ${CADDY_MARK_END}
@@ -242,11 +258,8 @@ EOF
 
 install_panel() {
     wait_for_apt_lock
-    
-    # 1. 拉取代码
     deploy_code
 
-    # 读取旧配置
     local def_user="admin"
     local def_pass="admin"
     local def_key=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
@@ -311,12 +324,9 @@ install_panel() {
 
 update_panel() {
     if [ ! -d "${INSTALL_DIR}" ]; then print_error "未检测到安装目录，请先执行安装。"; fi
-    
     echo -e "${BLUE}=================================================${PLAIN}"
     print_info "正在更新代码..."
-    deploy_code # Git Pull
-
-    # 重新构建镜像以应用代码变更
+    deploy_code
     print_info "正在重建容器..."
     docker compose up -d --build
     print_success "更新完成！"
@@ -325,7 +335,6 @@ update_panel() {
 uninstall_panel() {
     read -p "确定要卸载吗？(y/n): " confirm
     if [ "$confirm" != "y" ]; then exit 0; fi
-    
     if [ -d "${INSTALL_DIR}" ]; then
         cd ${INSTALL_DIR}
         docker compose down
@@ -338,7 +347,7 @@ uninstall_panel() {
 # --- 主菜单 ---
 check_root
 clear
-echo -e "${GREEN} X-Fusion Panel 一键管理脚本 (Git版) ${PLAIN}"
+echo -e "${GREEN} X-Fusion 一键管理脚本 ${PLAIN}"
 echo -e "  1. 安装面板"
 echo -e "  2. 更新面板"
 echo -e "  3. 卸载面板"
