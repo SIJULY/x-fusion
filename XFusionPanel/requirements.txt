@@ -1,9 +1,0 @@
-nicegui>=1.4.0
-fastapi
-uvicorn
-requests
-paramiko
-apscheduler
-pyotp
-qrcode
-pillow
