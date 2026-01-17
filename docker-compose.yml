@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  x-fusion-panel:
+    build: .
+    container_name: x-fusion-panel
+    restart: always
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data:/app/data
+      - ./static:/app/static
+    environment:
+      - TZ=Asia/Shanghai
+      - XUI_USERNAME=admin
+      - XUI_PASSWORD=admin
+      - XUI_SECRET_KEY=sijuly_secret_key
+
+  subconverter:
+    image: tindy2013/subconverter:latest
+    container_name: subconverter
+    restart: always
+    ports:
+      - "127.0.0.1:25500:25500"
+    environment:
+      - TZ=Asia/Shanghai
