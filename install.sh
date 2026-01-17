@@ -1,20 +1,20 @@
 #!/bin/bash
 
 # ==============================================================================
-# X-Fusion 一键安装/管理脚本 (适配 x-fusion 新仓库)
+# X-Fusion 一键安装/管理脚本
 # GitHub: https://github.com/SIJULY/x-fusion
 # ==============================================================================
 
 # --- 全局变量 ---
-# ✨ 1. 修改项目名称，安装目录变更为 /root/x-fusion
+# 项目名称与安装目录 (统一为 x-fusion)
 PROJECT_NAME="x-fusion"
 INSTALL_DIR="/root/${PROJECT_NAME}"
 
-# 旧版目录 (用于数据迁移)
+# 旧版目录 (用于数据迁移检测)
 OLD_INSTALL_DIR_V1="/root/xui_manager"
 OLD_INSTALL_DIR_V2="/root/x-fusion-panel"
 
-# ✨ 2. 修改仓库地址为新地址
+# 仓库地址
 REPO_URL="https://github.com/SIJULY/x-fusion.git"
 
 # Caddy 配置标记
@@ -88,9 +88,9 @@ check_dependencies() {
     fi
 }
 
-# --- ✨ 核心：数据迁移逻辑 (支持从 x-fusion-panel 迁移) ---
+# --- 核心：数据迁移逻辑 ---
 migrate_old_data() {
-    # 迁移 V1 (xui_manager)
+    # 1. 迁移 V1 (xui_manager)
     if [ -d "$OLD_INSTALL_DIR_V1" ] && [ ! -d "$INSTALL_DIR" ]; then
         print_info "检测到 V1 旧版目录 ($OLD_INSTALL_DIR_V1)，正在迁移..."
         cd "$OLD_INSTALL_DIR_V1"
@@ -100,13 +100,13 @@ migrate_old_data() {
         print_success "V1 数据迁移完成。"
     fi
 
-    # 迁移 V2 (x-fusion-panel) -> 新版 (x-fusion)
+    # 2. 迁移 V2 (x-fusion-panel) -> 新版 (x-fusion)
     if [ -d "$OLD_INSTALL_DIR_V2" ] && [ ! -d "$INSTALL_DIR" ]; then
         print_info "检测到 V2 旧版目录 ($OLD_INSTALL_DIR_V2)，正在迁移至新目录 ($INSTALL_DIR)..."
         cd "$OLD_INSTALL_DIR_V2"
-        # 停止旧容器名
+        # 尝试停止旧容器 (名称可能是 x-fusion-panel)
         if docker ps -a | grep -q "x-fusion-panel"; then
-            print_info "停止旧容器..."
+            print_info "停止旧容器 x-fusion-panel..."
             docker compose down >/dev/null 2>&1
         fi
         cd /root
@@ -128,6 +128,7 @@ deploy_code() {
         git pull
     else
         print_info "正在克隆代码仓库..."
+        # 如果目录存在但不是git仓库（可能是旧的手动安装），先备份
         if [ -d "${INSTALL_DIR}" ]; then
             print_warning "目录存在但非Git仓库，正在备份数据并重新克隆..."
             mkdir -p /tmp/x_fusion_backup
@@ -138,6 +139,7 @@ deploy_code() {
         
         git clone "${REPO_URL}" "${INSTALL_DIR}"
         
+        # 恢复数据
         if [ -d "/tmp/x_fusion_backup/data" ]; then
             mkdir -p "${INSTALL_DIR}/data"
             cp -r /tmp/x_fusion_backup/data/* "${INSTALL_DIR}/data/"
@@ -152,7 +154,7 @@ deploy_code() {
     mkdir -p data
     mkdir -p static
     
-    # ✨ 强制补全静态资源 (防止 Git 拉取不全)
+    # 补全静态资源
     print_info "正在检查并补全静态资源..."
     if [ ! -s "static/world.json" ]; then
         print_info "正在下载地图数据..."
@@ -165,14 +167,14 @@ deploy_code() {
         curl -sS -o static/xterm-addon-fit.js "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"
     fi
 
-    # 初始化空文件
+    # 初始化空文件 (防止 Docker 挂载目录时自动生成目录而非文件)
     if [ ! -f "data/servers.json" ]; then echo "[]" > data/servers.json; fi
     if [ ! -f "data/subscriptions.json" ]; then echo "[]" > data/subscriptions.json; fi
     if [ ! -f "data/admin_config.json" ]; then echo "{}" > data/admin_config.json; fi
     if [ ! -f "Caddyfile" ]; then touch Caddyfile; fi
 }
 
-# --- 动态生成 Docker Compose (容器名更新为 x-fusion) ---
+# --- 动态生成 Docker Compose ---
 generate_compose() {
     local BIND_IP=$1
     local PORT=$2
@@ -181,6 +183,7 @@ generate_compose() {
     local SECRET=$5 
     local ENABLE_CADDY=$6
 
+    # 注意：这里将 service 和 container_name 统一为 x-fusion
     cat > ${INSTALL_DIR}/docker-compose.yml << EOF
 version: '3.8'
 services:
@@ -238,6 +241,7 @@ configure_caddy_docker() {
     sed -i "/${CADDY_MARK_START}/,/${CADDY_MARK_END}/d" "$DOCKER_CADDY_FILE"
     if [ -s "$DOCKER_CADDY_FILE" ] && [ "$(tail -c 1 "$DOCKER_CADDY_FILE")" != "" ]; then echo "" >> "$DOCKER_CADDY_FILE"; fi
 
+    # Caddy 反代配置，指向 x-fusion 容器
     cat >> "$DOCKER_CADDY_FILE" << EOF
 ${CADDY_MARK_START}
 ${DOMAIN} {
