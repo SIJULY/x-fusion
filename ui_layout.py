@@ -2792,15 +2792,19 @@ async def render_mobile_status_page():
 # -------------------------------------------------------
 async def render_desktop_status_page():
     global CURRENT_PROBE_TAB
-
+    
     # 1. 初始化暗色模式状态
     dark_mode = ui.dark_mode()
     if app.storage.user.get('is_dark') is None: app.storage.user['is_dark'] = True
     dark_mode.value = app.storage.user.get('is_dark')
 
-    # 2. 注入 JS/CSS 资源
+    # 2. 注入 JS/CSS 资源 (✨ 已修改为本地路径)
+    # 使用本地下载的 ECharts
     ui.add_head_html('<script src="/static/echarts.min.js"></script>')
-    ui.add_head_html('<link href="https://use.fontawesome.com/releases/v6.4.0/css/all.css" rel="stylesheet">')
+    
+    # FontAwesome 字体图标 (您可以继续用 CDN，或者也下载到 static 目录引用)
+    ui.add_head_html('<link href="https://use.fontawesome.com/releases/v6.4.0/css/all.css" rel="stylesheet">') 
+    
     ui.add_head_html('''
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
         <style>
