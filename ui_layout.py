@@ -1333,73 +1333,202 @@ def open_create_group_dialog():
 # ================= 9. 页面渲染核心函数 =================
 
 async def render_probe_page():
+    # 1. 标记当前视图状态
     state.CURRENT_VIEW_STATE['scope'] = 'PROBE'
-    content_container.clear();
-    content_container.classes(
-        replace='w-full h-full overflow-y-auto p-6 bg-slate-50 relative flex flex-col justify-center items-center')
+    
+    # 2. 清理并初始化容器 (垂直居中)
+    content_container.clear()
+    content_container.classes(replace='w-full h-full overflow-y-auto p-6 bg-slate-50 relative flex flex-col justify-center items-center')
+    
+    # 确保默认配置存在
+    if not state.ADMIN_CONFIG.get('probe_enabled'):
+        state.ADMIN_CONFIG['probe_enabled'] = True
+        await logic.save_admin_config()
+
+    # 3. 渲染布局
     with content_container:
         with ui.column().classes('w-full max-w-7xl gap-6'):
+            
+            # --- 标题栏 ---
             with ui.row().classes('w-full items-center gap-3'):
-                with ui.element('div').classes('p-2 bg-blue-600 rounded-lg shadow-sm'): ui.icon('tune',
-                                                                                                color='white').classes(
-                    'text-2xl')
-                with ui.column().classes('gap-0'):
+                 with ui.element('div').classes('p-2 bg-blue-600 rounded-lg shadow-sm'):
+                     ui.icon('tune', color='white').classes('text-2xl')
+                 with ui.column().classes('gap-0'):
                     ui.label('探针管理与设置').classes('text-2xl font-extrabold text-slate-800 tracking-tight')
-                    ui.label('Probe Configuration & Management').classes(
-                        'text-xs font-bold text-gray-400 uppercase tracking-widest')
+                    ui.label('Probe Configuration & Management').classes('text-xs font-bold text-gray-400 uppercase tracking-widest')
 
+            # --- 核心网格布局 (左右 4:3 比例) ---
             with ui.grid().classes('w-full grid-cols-1 lg:grid-cols-7 gap-6 items-stretch'):
+                
+                # ======================= 左侧：参数设置区 (占 4/7) =======================
                 with ui.column().classes('lg:col-span-4 w-full gap-6'):
+                    
+                    # --- 卡片 1: 基础连接设置 ---
                     with ui.card().classes('w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl'):
-                        ui.label('基础连接设置').classes('text-lg font-bold text-slate-700 mb-4 border-b pb-2')
-                        url_input = ui.input('主控端地址', value=state.ADMIN_CONFIG.get('manager_base_url', '')).props(
-                            'outlined dense').classes('w-full')
+                        with ui.row().classes('items-center gap-2 mb-4 border-b border-gray-100 pb-2 w-full'):
+                            ui.icon('hub', color='blue').classes('text-xl')
+                            ui.label('基础连接设置').classes('text-lg font-bold text-slate-700')
+                        
+                        with ui.column().classes('w-full gap-2'):
+                            ui.label('📡 主控端外部地址 (Agent 连接地址)').classes('text-sm font-bold text-gray-600')
+                            
+                            # 从 state 读取配置
+                            default_url = state.ADMIN_CONFIG.get('manager_base_url', 'http://xui-manager:8080')
+                            url_input = ui.input(value=default_url, placeholder='http://1.2.3.4:8080').props('outlined dense').classes('w-full')
+                            
+                            ui.label('Agent 将向此地址推送数据。请填写 http://公网IP:端口 或 https://域名').classes('text-xs text-gray-400')
 
                         async def save_url():
-                            state.ADMIN_CONFIG['manager_base_url'] = url_input.value.strip().rstrip('/')
-                            await logic.save_admin_config()
-                            safe_notify('保存成功', 'positive')
+                            val = url_input.value.strip().rstrip('/')
+                            if val:
+                                state.ADMIN_CONFIG['manager_base_url'] = val
+                                await logic.save_admin_config() # 调用 logic 保存
+                                utils.safe_notify('✅ 主控端地址已保存', 'positive')
+                            else: 
+                                utils.safe_notify('地址不能为空', 'warning')
 
-                        ui.button('保存连接设置', on_click=save_url).props('unelevated color=blue-7').classes(
-                            'font-bold self-end mt-4')
+                        with ui.row().classes('w-full justify-end mt-4'):
+                            ui.button('保存连接设置', icon='save', on_click=save_url).props('unelevated color=blue-7').classes('font-bold')
 
+                    # --- 卡片 2: 三网测速目标 ---
                     with ui.card().classes('w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl'):
-                        ui.label('三网测速目标').classes('text-lg font-bold text-slate-700 mb-4 border-b pb-2')
+                        with ui.row().classes('items-center gap-2 mb-4 border-b border-gray-100 pb-2 w-full'):
+                            ui.icon('speed', color='orange').classes('text-xl')
+                            ui.label('三网延迟测速目标 (Ping)').classes('text-lg font-bold text-slate-700')
+                        
                         with ui.grid().classes('w-full grid-cols-1 sm:grid-cols-3 gap-4'):
-                            ping_ct = ui.input('电信 IP', value=state.ADMIN_CONFIG.get('ping_target_ct', '')).props(
-                                'outlined dense')
-                            ping_cu = ui.input('联通 IP', value=state.ADMIN_CONFIG.get('ping_target_cu', '')).props(
-                                'outlined dense')
-                            ping_cm = ui.input('移动 IP', value=state.ADMIN_CONFIG.get('ping_target_cm', '')).props(
-                                'outlined dense')
+                            with ui.column().classes('gap-1'):
+                                ui.label('中国电信 IP').classes('text-xs font-bold text-gray-500')
+                                ping_ct = ui.input(value=state.ADMIN_CONFIG.get('ping_target_ct', '202.102.192.68')).props('outlined dense').classes('w-full')
+                            
+                            with ui.column().classes('gap-1'):
+                                ui.label('中国联通 IP').classes('text-xs font-bold text-gray-500')
+                                ping_cu = ui.input(value=state.ADMIN_CONFIG.get('ping_target_cu', '112.122.10.26')).props('outlined dense').classes('w-full')
+                            
+                            with ui.column().classes('gap-1'):
+                                ui.label('中国移动 IP').classes('text-xs font-bold text-gray-500')
+                                ping_cm = ui.input(value=state.ADMIN_CONFIG.get('ping_target_cm', '211.138.180.2')).props('outlined dense').classes('w-full')
+                        
+                        with ui.row().classes('w-full items-center gap-1 mt-2'):
+                            ui.icon('info', size='xs').classes('text-gray-400')
+                            ui.label('修改测速目标后，请点击右侧的“更新所有探针”按钮以生效。').classes('text-xs text-gray-400')
 
                         async def save_ping():
-                            state.ADMIN_CONFIG['ping_target_ct'] = ping_ct.value
-                            state.ADMIN_CONFIG['ping_target_cu'] = ping_cu.value
-                            state.ADMIN_CONFIG['ping_target_cm'] = ping_cm.value
-                            await logic.save_admin_config()
-                            safe_notify('保存成功', 'positive')
+                            state.ADMIN_CONFIG['ping_target_ct'] = ping_ct.value.strip()
+                            state.ADMIN_CONFIG['ping_target_cu'] = ping_cu.value.strip()
+                            state.ADMIN_CONFIG['ping_target_cm'] = ping_cm.value.strip()
+                            await logic.save_admin_config() # 调用 logic 保存
+                            utils.safe_notify('✅ 测速目标已保存 (请更新探针以生效)', 'positive')
 
-                        ui.button('保存测速目标', on_click=save_ping).props('unelevated color=orange-7').classes(
-                            'font-bold self-end mt-4')
+                        with ui.row().classes('w-full justify-end mt-4'):
+                            ui.button('保存测速目标', icon='save', on_click=save_ping).props('unelevated color=orange-7').classes('font-bold')
 
+                    # --- 卡片 3: 通知设置 ---
+                    with ui.card().classes('w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl'):
+                        with ui.row().classes('items-center gap-2 mb-4 border-b border-gray-100 pb-2 w-full'):
+                            ui.icon('notifications', color='purple').classes('text-xl')
+                            ui.label('通知设置 (Telegram)').classes('text-lg font-bold text-slate-700')
+                        
+                        with ui.grid().classes('w-full grid-cols-1 sm:grid-cols-2 gap-4'):
+                            with ui.column().classes('gap-1'):
+                                ui.label('Bot Token').classes('text-xs font-bold text-gray-500')
+                                tg_token = ui.input(value=state.ADMIN_CONFIG.get('tg_bot_token', '')).props('outlined dense').classes('w-full')
+                            
+                            with ui.column().classes('gap-1'):
+                                ui.label('Chat ID').classes('text-xs font-bold text-gray-500')
+                                tg_id = ui.input(value=state.ADMIN_CONFIG.get('tg_chat_id', '')).props('outlined dense').classes('w-full')
+                        
+                        ui.label('用于接收服务器离线/恢复的实时通知。').classes('text-xs text-gray-400 mt-2')
+
+                        async def save_notify_conf():
+                            state.ADMIN_CONFIG['tg_bot_token'] = tg_token.value.strip()
+                            state.ADMIN_CONFIG['tg_chat_id'] = tg_id.value.strip()
+                            await logic.save_admin_config() # 调用 logic 保存
+                            utils.safe_notify('✅ 通知设置已保存', 'positive')
+
+                        with ui.row().classes('w-full justify-end mt-4'):
+                            ui.button('保存通知设置', icon='save', on_click=save_notify_conf).props('unelevated color=purple-7').classes('font-bold')
+
+                # ======================= 右侧：快捷操作区 (占 3/7) =======================
                 with ui.column().classes('lg:col-span-3 w-full gap-6 h-full'):
-                    with ui.card().classes(
-                            'w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl flex-shrink-0'):
-                        ui.label('快捷操作').classes(
-                            'text-lg font-bold text-slate-700 mb-4 border-l-4 border-blue-500 pl-2')
-                        ui.button('复制安装命令', icon='content_copy', on_click=lambda: safe_copy_to_clipboard(
-                            "curl -sL https://raw.githubusercontent.com/SIJULY/x-fusion-panel/main/x-install.sh | bash")).classes(
-                            'w-full bg-blue-50 text-blue-700 border border-blue-200 shadow-sm hover:bg-blue-100 font-bold')
-                        with ui.row().classes('w-full gap-2'):
-                            ui.button('分组管理', icon='settings',
-                                      on_click=lambda: open_unified_group_manager('manage')).classes(
-                                'flex-1 bg-blue-50 text-blue-700 border border-blue-200 shadow-sm')
-                            ui.button('排序', icon='sort', on_click=open_group_sort_dialog).classes(
-                                'flex-1 bg-gray-50 text-gray-700 border border-gray-200 shadow-sm')
-                        ui.button('更新所有探针', icon='system_update_alt',
-                                  on_click=logic.batch_install_all_probes).classes(
-                            'w-full bg-orange-50 text-orange-700 border border-orange-200 shadow-sm')
+                    
+                    # --- 卡片 A: 快捷操作 ---
+                    with ui.card().classes('w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl flex-shrink-0'):
+                        ui.label('快捷操作').classes('text-lg font-bold text-slate-700 mb-4 border-l-4 border-blue-500 pl-2')
+                        
+                        with ui.column().classes('w-full gap-3'):
+                            # 1. 复制安装命令
+                            async def copy_install_cmd():
+                                try: origin = await ui.run_javascript('return window.location.origin', timeout=3.0)
+                                except: utils.safe_notify("无法获取面板地址", "negative"); return
+                                
+                                token = state.ADMIN_CONFIG.get('probe_token', 'default_token')
+                                mgr_url_conf = state.ADMIN_CONFIG.get('manager_base_url', '').strip().rstrip('/')
+                                base_url = mgr_url_conf if mgr_url_conf else origin
+                                
+                                register_api = f"{base_url}/api/probe/register"
+                                ping_ct = state.ADMIN_CONFIG.get('ping_target_ct', '202.102.192.68')
+                                ping_cu = state.ADMIN_CONFIG.get('ping_target_cu', '112.122.10.26')
+                                ping_cm = state.ADMIN_CONFIG.get('ping_target_cm', '211.138.180.2')
+                                
+                                cmd = f'curl -sL https://raw.githubusercontent.com/SIJULY/x-fusion-panel/main/x-install.sh | bash -s -- "{token}" "{register_api}" "{ping_ct}" "{ping_cu}" "{ping_cm}"'
+                                
+                                await utils.safe_copy_to_clipboard(cmd)
+                                utils.safe_notify("📋 安装命令已复制！", "positive")
+                            
+                            ui.button('复制安装命令', icon='content_copy', on_click=copy_install_cmd) \
+                                .classes('w-full bg-blue-50 text-blue-700 border border-blue-200 shadow-sm hover:bg-blue-100 font-bold align-left')
+                            
+                            # 2. 视图管理按钮组 (横向排列)
+                            with ui.row().classes('w-full gap-2'):
+                                # 分组管理
+                                ui.button('分组管理', icon='settings', on_click=lambda: open_unified_group_manager('manage')) \
+                                    .classes('flex-1 bg-blue-50 text-blue-700 border border-blue-200 shadow-sm hover:bg-blue-100 font-bold')
+
+                                # 排序视图
+                                ui.button('排序', icon='sort', on_click=open_group_sort_dialog) \
+                                    .classes('flex-1 bg-gray-50 text-gray-700 border border-gray-200 shadow-sm hover:bg-gray-100 font-bold')
+                            
+                            # 3. 更新所有探针
+                            async def reinstall_all():
+                                utils.safe_notify("正在后台更新所有探针脚本...", "ongoing")
+                                await logic.batch_install_all_probes() # 调用 logic 执行批量安装
+                            
+                            ui.button('更新所有探针', icon='system_update_alt', on_click=reinstall_all) \
+                                .classes('w-full bg-orange-50 text-orange-700 border border-orange-200 shadow-sm hover:bg-orange-100 font-bold align-left')
+
+                    # --- 卡片 B: 公开监控页入口 ---
+                    with ui.card().classes('w-full p-6 bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl shadow-lg relative overflow-hidden group cursor-pointer flex-grow flex flex-col justify-center') \
+                        .on('click', lambda: ui.navigate.to('/status', new_tab=True)):
+                        
+                        ui.icon('public', size='10rem').classes('absolute -right-8 -bottom-8 text-white opacity-10 group-hover:rotate-12 transition transform duration-500')
+                        
+                        ui.label('公开监控墙').classes('text-2xl font-bold mb-2')
+                        ui.label('点击前往查看实时状态地图').classes('text-sm text-gray-400 mb-6')
+                        
+                        with ui.row().classes('items-center gap-2 text-blue-400 font-bold text-base group-hover:gap-3 transition-all'):
+                            ui.label('立即前往')
+                            ui.icon('arrow_forward')
+
+                    # --- 卡片 C: 数据统计 ---
+                    online = len([s for s in state.SERVERS_CACHE if s.get('_status') == 'online'])
+                    total = len(state.SERVERS_CACHE)
+                    probe = len([s for s in state.SERVERS_CACHE if s.get('probe_installed')])
+                    
+                    with ui.card().classes('w-full p-6 bg-white border border-gray-200 shadow-sm rounded-xl flex-shrink-0'):
+                        ui.label('数据概览').classes('text-lg font-bold text-slate-700 mb-4 border-l-4 border-green-500 pl-2')
+                        
+                        with ui.row().classes('w-full justify-between items-center border-b border-gray-50 pb-3 mb-3'):
+                            ui.label('总服务器').classes('text-gray-500 text-sm')
+                            ui.label(str(total)).classes('font-bold text-xl text-slate-800')
+                        
+                        with ui.row().classes('w-full justify-between items-center border-b border-gray-50 pb-3 mb-3'):
+                            ui.label('探针在线').classes('text-gray-500 text-sm')
+                            ui.label(str(online)).classes('font-bold text-xl text-green-600')
+                        
+                        with ui.row().classes('w-full justify-between items-center'):
+                            ui.label('已安装探针').classes('text-gray-500 text-sm')
+                            ui.label(str(probe)).classes('font-bold text-xl text-purple-600')
 
 
 async def load_subs_view():
