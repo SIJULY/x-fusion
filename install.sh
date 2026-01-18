@@ -154,17 +154,32 @@ deploy_code() {
     mkdir -p data
     mkdir -p static
     
-    # 补全静态资源
+    # ✨✨✨ 补全静态资源 (修复核心) ✨✨✨
     print_info "正在检查并补全静态资源..."
+    
+    # 1. ECharts (大屏必须)
+    if [ ! -s "static/echarts.min.js" ]; then
+        print_info "下载 ECharts..."
+        curl -sS -o static/echarts.min.js "https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"
+    fi
+    
+    # 2. 地图数据
     if [ ! -s "static/world.json" ]; then
-        print_info "正在下载地图数据..."
+        print_info "下载地图数据..."
         curl -sS -o static/world.json "https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json"
     fi
+    
+    # 3. 终端依赖 (WebSSH 必须)
     if [ ! -s "static/xterm.js" ]; then
-        print_info "正在下载终端依赖..."
+        print_info "下载 Xterm 依赖..."
         curl -sS -o static/xterm.js "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
         curl -sS -o static/xterm.css "https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
         curl -sS -o static/xterm-addon-fit.js "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"
+    fi
+    
+    # 4. 自身的安装脚本 (用于远程调用)
+    if [ ! -s "static/x-install.sh" ]; then
+        cp x-install.sh static/x-install.sh
     fi
 
     # 初始化空文件 (防止 Docker 挂载目录时自动生成目录而非文件)
