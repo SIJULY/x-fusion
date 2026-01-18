@@ -489,10 +489,35 @@ async def force_geoip_naming_task(server_conf):
         pass
 
 
+# [logic.py] 替换原有的 pass
 async def smart_detect_ssh_user_task(server_conf):
-    """自动探测 SSH 用户名 (root/ubuntu/etc)"""
-    # 待实现具体逻辑，目前占位
-    pass
+    """自动探测 SSH 用户名"""
+    candidates = ['ubuntu', 'root', 'debian', 'opc', 'ec2-user', 'admin']
+    ip = server_conf['url'].split('://')[-1].split(':')[0]
+    
+    logger.info(f"🕵️‍♂️ [智能探测] 开始探测 {server_conf['name']} ({ip}) ...")
+    
+    found_user = None
+    for user in candidates:
+        server_conf['ssh_user'] = user
+        # 尝试连接
+        client, msg = await run_in_bg_executor(utils.get_ssh_client_sync, server_conf)
+        if client:
+            client.close()
+            found_user = user
+            logger.info(f"✅ [智能探测] 成功匹配用户名: {user}")
+            break
+            
+    if found_user:
+        server_conf['ssh_user'] = found_user
+        await save_servers()
+        # 触发探针安装
+        if state.ADMIN_CONFIG.get('probe_enabled', False):
+            await asyncio.sleep(2)
+            await batch_install_all_probes() # 这里可能会重复安装所有，建议优化为只安装单台
+            # 或者调用: await install_probe_on_server(server_conf) # 需要将 install_probe_on_server 移到 logic.py
+    else:
+        logger.error(f"❌ [智能探测] {server_conf['name']} 失败")
 
 
 def record_ping_history(url, pings):
@@ -531,3 +556,64 @@ async def restore_backup_zip(content_bytes):
     if res:
         init_data()  # 重新加载内存
     return res
+
+# [logic.py] 替换原有的 pass
+async def job_monitor_status():
+    """定时任务：服务器状态监控与报警"""
+    # 限制并发
+    sema = asyncio.Semaphore(50)
+    FAILURE_THRESHOLD = 3
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    
+    # 定义报警缓存 (需要在 state.py 中添加 ALERT_CACHE = {} 和 FAILURE_COUNTS = {})
+    if not hasattr(state, 'ALERT_CACHE'): state.ALERT_CACHE = {}
+    if not hasattr(state, 'FAILURE_COUNTS'): state.FAILURE_COUNTS = {}
+
+    async def _check_single_server(srv):
+        # 仅监控已安装探针的机器
+        if not srv.get('probe_installed', False): return
+
+        async with sema:
+            await asyncio.sleep(0.01)
+            url = srv['url']
+            name = srv.get('name', 'Unknown')
+            
+            # 获取状态
+            res = await get_server_status(srv)
+            is_online = (isinstance(res, dict) and res.get('status') == 'online')
+
+            # TG 报警逻辑
+            if not state.ADMIN_CONFIG.get('tg_bot_token'): return
+
+            display_ip = url.split('://')[-1].split(':')[0]
+
+            if is_online:
+                state.FAILURE_COUNTS[url] = 0
+                # 发送恢复通知
+                if state.ALERT_CACHE.get(url) == 'offline':
+                    msg = f"🟢 **恢复**\n🖥️ `{name}`\n🔗 `{display_ip}`\n🕒 `{current_time}`"
+                    asyncio.create_task(send_telegram_message(msg))
+                    state.ALERT_CACHE[url] = 'online'
+            else:
+                count = state.FAILURE_COUNTS.get(url, 0) + 1
+                state.FAILURE_COUNTS[url] = count
+                
+                if count >= FAILURE_THRESHOLD:
+                    if state.ALERT_CACHE.get(url) != 'offline':
+                        msg = f"🔴 **离线报警**\n🖥️ `{name}`\n🔗 `{display_ip}`\n🕒 `{current_time}`"
+                        asyncio.create_task(send_telegram_message(msg))
+                        state.ALERT_CACHE[url] = 'offline'
+
+    tasks = [_check_single_server(s) for s in state.SERVERS_CACHE]
+    if tasks: await asyncio.gather(*tasks)
+
+# 辅助函数：发送 TG (放在 logic.py 或 utils.py)
+async def send_telegram_message(text):
+    token = state.ADMIN_CONFIG.get('tg_bot_token')
+    chat_id = state.ADMIN_CONFIG.get('tg_chat_id')
+    if not token or not chat_id: return
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        await run_in_bg_executor(requests.post, url, {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+    except: pass
+
